@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hex Map Maker</title>
+
+    <!-- Pickr Color Picker CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css"/>
+
+    <style>
+        /* --- General Layout --- */
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            overflow: hidden;
+            margin: 0; /* Remove default body margin */
+            height: 100vh; /* Ensure body takes full height */
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            flex-wrap: nowrap; /* Prevent controls from wrapping below */
+            height: calc(100vh - 60px); /* Adjust based on H1 size */
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        h1 {
+             width: 100%;
+             margin: 10px 20px;
+             flex-shrink: 0; /* Prevent h1 from shrinking */
+        }
+        #grid-container {
+            flex: 3; /* Takes up more space */
+            min-width: 400px;
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+            height: 100%; /* Fill container height */
+            cursor: grab;
+        }
+        #grid-container.panning {
+            cursor: grabbing;
+        }
+        #controls {
+            flex: 1; /* Takes less space */
+            min-width: 230px; /* Ensure enough space */
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%; /* Fill container height */
+            overflow-y: auto; /* Allow controls to scroll */
+            padding-right: 5px; /* Prevent scrollbar overlap */
+        }
+
+        /* --- SVG and Hex Styles --- */
+        svg#hexGrid {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .hexagon {
+            stroke: #999;
+            stroke-width: 1;
+            fill: #fff; /* Default background */
+            transition: fill 0.1s ease-in-out;
+            vector-effect: non-scaling-stroke;
+        }
+        .hexagon:hover {
+            stroke: #000; /* Darker stroke on hover */
+            stroke-width: 1.5;
+            /* fill: #adebeb !important;  Removed hover fill change to see underlying color */
+        }
+        .hexagon-text, .coord-text {
+            text-anchor: middle;
+            pointer-events: none;
+            user-select: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .hexagon-text { /* Emoji text */
+            font-size: 20px;
+            dominant-baseline: central;
+        }
+        .coord-text { /* Coordinate text */
+             font-size: 8px;
+             fill: #555;
+             dominant-baseline: hanging;
+        }
+        #hexGrid.coords-hidden .coord-text {
+            display: none;
+        }
+
+        /* --- Controls Panel Styles --- */
+        .control-section {
+             border: 1px solid #eee;
+             padding: 10px;
+             background-color: #fdfdfd;
+             margin-bottom: 10px; /* Add space between sections */
+        }
+         .control-section label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+         }
+
+         /* Radius */
+         #radius-control input { width: 50px; padding: 5px; margin-right: 5px;}
+         #radius-control button { padding: 5px 10px; cursor: pointer; }
+
+         /* Zoom */
+         #zoom-controls button { font-size: 18px; padding: 3px 8px; margin: 0 5px; min-width: 30px; cursor: pointer; }
+
+         /* Coordinates */
+         #coord-toggle { padding: 8px 10px;}
+         #coord-toggle input { margin-right: 5px; vertical-align: middle; }
+         #coord-toggle label { display: inline-block; margin-bottom: 0; font-weight: normal; vertical-align: middle; cursor: pointer; }
+
+         /* Tool Palette */
+        .tool-palette button {
+            font-size: 24px;
+            padding: 5px 10px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            background-color: #eee;
+            margin: 2px;
+            border-radius: 4px;
+            min-width: 40px;
+            line-height: 1;
+            vertical-align: middle;
+            position: relative; /* Needed for potential pseudo-elements later */
+        }
+        .tool-palette button.selected {
+            border-color: #007bff;
+            background-color: #ddeeff;
+        }
+
+         /* Color Picker */
+        .color-picker-container {
+             margin-top: 5px;
+             display: flex;
+             align-items: center;
+             gap: 10px;
+        }
+         /* Add border to Pickr button */
+         .pcr-button {
+            width: 30px !important;
+            height: 30px !important;
+            border: 1px solid #ccc !important; /* Added border */
+            box-shadow: none !important; /* Optional: remove default shadow if any */
+         }
+
+         /* Import/Export */
+         .io-section textarea { width: 95%; min-height: 60px; margin-bottom: 10px; font-family: monospace; }
+         .io-section button { padding: 8px 12px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>Hex Map Maker</h1>
+
+    <div class="container">
+        <div id="grid-container">
+            <svg id="hexGrid" width="100%" height="100%"></svg>
+        </div>
+
+        <div id="controls">
+            <div id="radius-control" class="control-section">
+                <label for="gridRadius">Grid Radius:</label>
+                <input type="number" id="gridRadius" value="5" min="0" max="30">
+                <button id="setRadiusBtn">Set</button> <!-- Shorter label -->
+            </div>
+
+            <div id="zoom-controls" class="control-section">
+                <label>Zoom:</label>
+                <button id="zoomOutBtn">-</button>
+                <button id="zoomInBtn">+</button>
+            </div>
+
+            <div id="coord-toggle" class="control-section">
+                 <input type="checkbox" id="toggleCoords" name="toggleCoords">
+                 <label for="toggleCoords">Show Coords</label> <!-- Shorter label -->
+            </div>
+
+            <div class="tool-palette control-section">
+                <label>Tools:</label>
+                <div> <!-- Wrap buttons for better layout -->
+                    <button id="paintToolBtn" data-tool="color">🎨</button>
+                    <button data-tool="emoji" data-value="🌳">🌳</button>
+                    <button data-tool="emoji" data-value="🌊">🌊</button>
+                    <button data-tool="emoji" data-value="🔥">🔥</button>
+                    <button data-tool="emoji" data-value="🛖">🛖</button>
+                    <button data-tool="emoji" data-value="👙">👙</button>
+                    <button data-tool="emoji" data-value="❌">❌</button>
+                    <button data-tool="emoji" data-value="😈">😈</button>
+                 </div>
+            </div>
+
+            <div class="color-picker-container control-section">
+                <label for="color-picker">Background Color:</label>
+                <div id="color-picker"></div>
+            </div>
+
+            <div class="io-section control-section">
+                <label for="outputState">Export State:</label>
+                <textarea id="outputState" readonly></textarea>
+                <button id="exportBtn">Generate</button>
+            </div>
+
+            <div class="io-section control-section">
+                <label for="inputState">Import State:</label>
+                <textarea id="inputState"></textarea>
+                <button id="importBtn">Load</button>
+            </div>
+
+             <p style="font-size: 0.8em; margin-top: auto; padding-top: 10px;"><small>Select tool, click hex to apply/remove. Emojis are placed over color. Scroll/buttons to zoom. Drag to pan. Max Radius: 30.</small></p>
+        </div>
+    </div>
+
+    <!-- Pickr Color Picker JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+
+    <script>
+        // --- Constants and Globals ---
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.getElementById('hexGrid');
+        const gridContainer = document.getElementById('grid-container');
+        const radiusInput = document.getElementById('gridRadius');
+        const setRadiusBtn = document.getElementById('setRadiusBtn');
+        const palette = document.querySelector('.tool-palette');
+        const exportBtn = document.getElementById('exportBtn');
+        const outputState = document.getElementById('outputState');
+        const importBtn = document.getElementById('importBtn');
+        const inputState = document.getElementById('inputState');
+        const toggleCoordsCheckbox = document.getElementById('toggleCoords');
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const paintToolBtn = document.getElementById('paintToolBtn');
+
+        const validEmojiValues = ["🌳", "🌊", "❌", "🔥", "🛖", "👙", "😈"];
+        let gridRadius = 5;
+        const maxGridRadius = 30;
+        let hexSize = 30;
+        let hexWidth = hexSize * 2;
+        let hexHeight = Math.sqrt(3) * hexSize;
+
+        let currentTool = null; // 'emoji' or 'color'
+        let currentToolValue = null; // Emoji string or Hex color string
+        let gridState = {}; // Stores state like: { "q,r": { background?: "#...", emoji?: "..." } }
+        let currentHexColor = '#ffffff'; // Default background color
+        let pickrInstance = null;
+
+        // Zoom/Pan State
+        let viewBox = { x: 0, y: 0, width: 0, height: 0 };
+        let isPanning = false;
+        let startPoint = { x: 0, y: 0 };
+
+        const DEFAULT_FILL_COLOR = '#ffffff';
+
+        // --- Pickr Color Picker Setup ---
+         function initializeColorPicker() {
+             pickrInstance = Pickr.create({ /* ... (same as before) ... */
+                el: '#color-picker', theme: 'classic', default: currentHexColor,
+                swatches: ['#DFFF00','#FFBF00','#FF7F50','#DE3163','#9FE2BF','#40E0D0','#6495ED','#CCCCFF','#F5F5F5','#A9A9A9'],
+                components: { preview: true, opacity: false, hue: true, interaction: { hex: true, input: true, save: true } }
+             });
+             pickrInstance.on('save', (color, instance) => {
+                 currentHexColor = color.toHEXA().toString();
+                 paintToolBtn.style.backgroundColor = currentHexColor; // Update button preview
+                 if (currentTool === 'color') { currentToolValue = currentHexColor; } // Update selected value if color tool active
+                 pickrInstance.hide();
+             });
+             paintToolBtn.style.backgroundColor = currentHexColor; // Initial button color
+        }
+
+        // --- Coordinate and Drawing ---
+        function axialToPixel(q, r) { /* ... (no change) ... */
+            const x = hexSize * (3 / 2 * q);
+            const y = hexSize * (Math.sqrt(3) / 2 * q + Math.sqrt(3) * r);
+            return { x, y };
+        }
+        function pixelToAxial(x, y) { /* ... (no change) ... */
+             const q = (2 / 3 * x) / hexSize;
+             const r = (-1 / 3 * x + Math.sqrt(3) / 3 * y) / hexSize;
+             return axialRound(q, r);
+        }
+        function axialRound(q, r) { /* ... (no change) ... */
+             const s = -q - r; let rq = Math.round(q); let rr = Math.round(r); let rs = Math.round(s);
+             const q_diff = Math.abs(rq - q); const r_diff = Math.abs(rr - r); const s_diff = Math.abs(rs - s);
+             if (q_diff > r_diff && q_diff > s_diff) { rq = -rr - rs; } else if (r_diff > s_diff) { rr = -rq - rs; }
+             return { q: rq, r: rr };
+        }
+        function getHexPoints(centerX, centerY) { /* ... (no change) ... */
+             let points = []; for (let i = 0; i < 6; i++) { let angle_deg = 60 * i; let angle_rad = Math.PI / 180 * angle_deg; points.push(`${(centerX + hexSize * Math.cos(angle_rad)).toFixed(3)},${(centerY + hexSize * Math.sin(angle_rad)).toFixed(3)}`); } return points.join(" ");
+        }
+        function getSVGPoint(screenX, screenY) { /* ... (no change) ... */
+             let pt = svg.createSVGPoint(); pt.x = screenX; pt.y = screenY; return pt.matrixTransform(svg.getScreenCTM().inverse());
+        }
+
+        function drawGrid(radius) {
+            svg.innerHTML = ''; // Clear previous SVG content
+            const elementsToAppend = [];
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+            for (let q = -radius; q <= radius; q++) {
+                for (let r = Math.max(-radius, -q - radius); r <= Math.min(radius, -q + radius); r++) {
+                    const { x, y } = axialToPixel(q, r);
+                    const key = `${q},${r}`;
+                    const hexData = gridState[key]; // Get data for this hex {background?, emoji?}
+
+                    // Calculate bounds
+                    minX = Math.min(minX, x - hexSize); maxX = Math.max(maxX, x + hexSize);
+                    minY = Math.min(minY, y - hexHeight / 2); maxY = Math.max(maxY, y + hexHeight / 2);
+
+                    // Create Polygon (Background Layer)
+                    const polygon = document.createElementNS(svgNS, 'polygon');
+                    polygon.setAttribute('class', 'hexagon');
+                    polygon.setAttribute('points', getHexPoints(0, 0));
+                    polygon.setAttribute('transform', `translate(${x}, ${y})`);
+                    polygon.setAttribute('data-q', q);
+                    polygon.setAttribute('data-r', r);
+                    polygon.addEventListener('click', handleHexClick);
+                    // Set background fill based on state
+                    polygon.style.fill = hexData?.background || DEFAULT_FILL_COLOR;
+                    elementsToAppend.push(polygon);
+
+                    // Create Coordinate Text (if enabled)
+                    const coordText = document.createElementNS(svgNS, 'text');
+                    coordText.setAttribute('class', 'coord-text');
+                    coordText.setAttribute('x', x);
+                    coordText.setAttribute('y', y + hexSize * 0.5);
+                    coordText.setAttribute('data-key', key);
+                    coordText.textContent = `${q},${r}`;
+                    elementsToAppend.push(coordText);
+
+                     // Create Emoji Text (Foreground Layer) if exists in state
+                     if (hexData?.emoji) {
+                         const emojiText = document.createElementNS(svgNS, 'text');
+                         emojiText.setAttribute('class', 'hexagon-text');
+                         emojiText.setAttribute('x', x);
+                         emojiText.setAttribute('y', y);
+                         emojiText.setAttribute('data-key', key); // Link text to hex coordinate
+                         emojiText.textContent = hexData.emoji;
+                         elementsToAppend.push(emojiText);
+                     }
+                }
+            }
+
+            // Calculate initial viewBox to fit grid (if not loaded from state)
+            if (viewBox.width === 0 || viewBox.height === 0) { // Check if viewBox is uninitialized
+                 const gridWidth = maxX - minX;
+                 const gridHeight = maxY - minY;
+                 const padding = hexSize;
+                 viewBox.x = minX - padding;
+                 viewBox.y = minY - padding;
+                 viewBox.width = gridWidth + 2 * padding;
+                 viewBox.height = gridHeight + 2 * padding;
+            }
+
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            elementsToAppend.forEach(el => svg.appendChild(el));
+            updateViewBox(); // Apply current/calculated viewBox
+        }
+
+        // --- Zoom/Pan Functions ---
+        function updateViewBox() { /* ... (no change) ... */
+            svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+        }
+        function doZoom(zoomFactor, centerX, centerY) { /* ... (no change) ... */
+            const minZoomWidth = hexSize * 2; const maxZoomWidth = (gridRadius * 2 + 1) * hexWidth * 5;
+            const newWidth = viewBox.width * zoomFactor; const newHeight = viewBox.height * zoomFactor;
+            if (newWidth < minZoomWidth || newWidth > maxZoomWidth) { return; }
+            viewBox.x = centerX - (centerX - viewBox.x) * zoomFactor; viewBox.y = centerY - (centerY - viewBox.y) * zoomFactor;
+            viewBox.width = newWidth; viewBox.height = newHeight; updateViewBox();
+        }
+        function handleWheelZoom(event) { /* ... (no change) ... */
+            event.preventDefault(); const zoomIntensity = 0.1; const direction = event.deltaY < 0 ? 1 : -1; const zoomFactor = 1 / (1 + direction * zoomIntensity);
+            const svgPoint = getSVGPoint(event.clientX, event.clientY); doZoom(zoomFactor, svgPoint.x, svgPoint.y);
+        }
+        function handleButtonZoom(zoomIn) { /* ... (no change) ... */
+             const zoomFactor = zoomIn ? 1 / 1.2 : 1.2; const centerX = viewBox.x + viewBox.width / 2; const centerY = viewBox.y + viewBox.height / 2; doZoom(zoomFactor, centerX, centerY);
+        }
+        function handleMouseDown(event) { /* ... (no change) ... */
+            if (event.button !== 0) return; isPanning = true; startPoint = { x: event.clientX, y: event.clientY }; gridContainer.classList.add('panning');
+            window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
+        }
+        function handleMouseMove(event) { /* ... (no change) ... */
+            if (!isPanning) return; event.preventDefault(); const endPoint = { x: event.clientX, y: event.clientY }; const dxScreen = startPoint.x - endPoint.x; const dyScreen = startPoint.y - endPoint.y;
+            const scaleX = viewBox.width / svg.clientWidth; const scaleY = viewBox.height / svg.clientHeight;
+            viewBox.x += dxScreen * scaleX; viewBox.y += dyScreen * scaleY; updateViewBox(); startPoint = endPoint;
+        }
+        function handleMouseUp(event) { /* ... (no change) ... */
+            if (!isPanning) return; isPanning = false; gridContainer.classList.remove('panning'); window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp);
+        }
+
+
+        // --- Tool Selection ---
+        function selectTool(button) { /* ... (no change) ... */
+            palette.querySelectorAll('button').forEach(btn => btn.classList.remove('selected')); button.classList.add('selected'); currentTool = button.dataset.tool;
+            if (currentTool === 'emoji') { currentToolValue = button.dataset.value; } else if (currentTool === 'color') { currentToolValue = currentHexColor; } else { currentToolValue = null; }
+        }
+        palette.addEventListener('click', (event) => { /* ... (no change, handles deselect) ... */
+            const targetButton = event.target.closest('button'); if (!targetButton || !targetButton.dataset.tool) return;
+            if (targetButton.classList.contains('selected')) { targetButton.classList.remove('selected'); currentTool = null; currentToolValue = null; } else { selectTool(targetButton); }
+        });
+
+
+        // --- Core Interaction Logic ---
+        function handleHexClick(event) {
+            const polygon = event.target; // The clicked polygon
+            const q = parseInt(polygon.getAttribute('data-q'));
+            const r = parseInt(polygon.getAttribute('data-r'));
+            const key = `${q},${r}`;
+
+            if (currentTool === null || currentToolValue === null) {
+                return; // No tool selected, do nothing
+            }
+
+            // Get the current state object for this hex, or create if doesn't exist
+            let hexData = gridState[key] || {};
+            let stateChanged = false;
+
+            if (currentTool === 'color') {
+                // --- Handle Background Color ---
+                if (hexData.background === currentToolValue) {
+                    // Color matches: Remove background
+                    delete hexData.background;
+                    polygon.style.fill = DEFAULT_FILL_COLOR;
+                    stateChanged = true;
+                } else {
+                    // Color differs or doesn't exist: Set background
+                    hexData.background = currentToolValue;
+                    polygon.style.fill = currentToolValue;
+                    stateChanged = true;
+                }
+            } else if (currentTool === 'emoji') {
+                // --- Handle Foreground Emoji ---
+                if (hexData.emoji === currentToolValue) {
+                    // Emoji matches: Remove emoji
+                    delete hexData.emoji;
+                    // Remove the SVG text element
+                    svg.querySelector(`text.hexagon-text[data-key="${key}"]`)?.remove();
+                    stateChanged = true;
+                } else {
+                    // Emoji differs or doesn't exist: Set emoji
+                    hexData.emoji = currentToolValue;
+                    // Add or update the SVG text element
+                    addOrUpdateEmojiText(key, currentToolValue);
+                    stateChanged = true;
+                }
+            }
+
+            // --- Update Grid State ---
+            if (stateChanged) {
+                if (Object.keys(hexData).length === 0) {
+                    // If the hexData object is now empty, remove it from the state
+                    delete gridState[key];
+                } else {
+                    // Otherwise, update the state for this key
+                    gridState[key] = hexData;
+                }
+            }
+        }
+
+        // Helper to add or update emoji text on the SVG
+        function addOrUpdateEmojiText(key, emoji) {
+             const existingText = svg.querySelector(`text.hexagon-text[data-key="${key}"]`);
+             const [q, r] = key.split(',').map(Number);
+             const { x, y } = axialToPixel(q, r); // Need center coordinates
+
+             if (existingText) {
+                 // Update existing text
+                 existingText.textContent = emoji;
+             } else {
+                 // Create new text element
+                 const text = document.createElementNS(svgNS, 'text');
+                 text.setAttribute('class', 'hexagon-text');
+                 text.setAttribute('x', x);
+                 text.setAttribute('y', y);
+                 text.setAttribute('data-key', key);
+                 text.textContent = emoji;
+                 svg.appendChild(text); // Append to the main SVG
+             }
+        }
+
+
+        // --- State Import/Export (Handles Layers) ---
+        function generateStateString() {
+            let stateParts = [`radius:${gridRadius}`];
+            stateParts.push(`viewBox:${viewBox.x.toFixed(3)},${viewBox.y.toFixed(3)},${viewBox.width.toFixed(3)},${viewBox.height.toFixed(3)}`);
+
+            for (const key in gridState) {
+                if (gridState.hasOwnProperty(key)) {
+                    const hexData = gridState[key];
+                    if (hexData.background) {
+                        stateParts.push(`${key}:bg:${hexData.background}`); // bg: prefix for background
+                    }
+                    if (hexData.emoji) {
+                        stateParts.push(`${key}:em:${hexData.emoji}`); // em: prefix for emoji
+                    }
+                }
+            }
+            return stateParts.join(';');
+        }
+
+        function isValidHexColor(color) { /* ... (no change) ... */
+             return typeof color === 'string' && /^#[0-9A-F]{6}([0-9A-F]{2})?$/i.test(color); // Allow optional alpha
+        }
+
+        function parseAndLoadState(stateString) {
+            if (!stateString || typeof stateString !== 'string') { alert("Invalid state string."); return; }
+
+            const parts = stateString.split(';');
+            let newRadius = -1;
+            let loadedViewBox = null;
+            const newState = {}; // Reset newState for this load
+
+            try {
+                // --- Parse Metadata (Radius, ViewBox) ---
+                const radiusPart = parts.find(p => p.startsWith('radius:'));
+                const viewBoxPart = parts.find(p => p.startsWith('viewBox:'));
+                if (radiusPart) { /* ... (same radius parsing and validation) ... */
+                     newRadius = parseInt(radiusPart.split(':')[1], 10);
+                     if (isNaN(newRadius) || newRadius < 0 || newRadius > maxGridRadius) { throw new Error(`Invalid or out-of-range radius (${newRadius}). Max is ${maxGridRadius}.`); }
+                } else { throw new Error("State string must contain 'radius:'."); }
+                if (viewBoxPart) { /* ... (same viewbox parsing) ... */
+                    const vbValues = viewBoxPart.split(':')[1].split(',').map(Number); if (vbValues.length === 4 && vbValues.every(v => !isNaN(v))) { loadedViewBox = { x: vbValues[0], y: vbValues[1], width: vbValues[2], height: vbValues[3] }; } else { console.warn("Invalid viewBox format, using default."); }
+                }
+
+                // --- Parse Hex Data (Background and Emoji) ---
+                parts.forEach(part => {
+                    if (!part || part.startsWith('radius:') || part.startsWith('viewBox:')) return;
+
+                    const firstColonIndex = part.indexOf(':');
+                    if (firstColonIndex === -1) { console.warn(`Skipping invalid part: ${part}`); return; }
+
+                    const key = part.substring(0, firstColonIndex); // "q,r"
+                    const valuePart = part.substring(firstColonIndex + 1); // "bg:#..." or "em:..."
+
+                    // Validate key format
+                    const coords = key.split(',');
+                    if (coords.length !== 2 || isNaN(parseInt(coords[0])) || isNaN(parseInt(coords[1]))) {
+                        console.warn(`Skipping part with invalid key: ${key}`); return;
+                    }
+
+                    // Ensure object exists for this key in newState
+                    if (!newState[key]) { newState[key] = {}; }
+
+                    // Check for prefixes
+                    if (valuePart.startsWith('bg:')) {
+                        const color = valuePart.substring(3);
+                        if (isValidHexColor(color)) {
+                            newState[key].background = color;
+                        } else { console.warn(`Skipping invalid background color for ${key}: ${color}`); }
+                    } else if (valuePart.startsWith('em:')) {
+                        const emoji = valuePart.substring(3);
+                        if (validEmojiValues.includes(emoji)) {
+                            newState[key].emoji = emoji;
+                        } else { console.warn(`Skipping invalid emoji for ${key}: ${emoji}`); }
+                    } else {
+                        console.warn(`Skipping part with unknown prefix or format: ${valuePart}`);
+                    }
+                });
+
+                // --- Apply Loaded State ---
+                gridRadius = newRadius;
+                radiusInput.value = gridRadius;
+                gridState = newState; // OVERWRITE internal state completely
+
+                // Reset SVG and viewBox before drawing
+                svg.innerHTML = '';
+                viewBox = loadedViewBox || { x: 0, y: 0, width: 0, height: 0 }; // Apply loaded or reset for recalculation
+
+                drawGrid(gridRadius); // Redraw using the new gridState and viewBox
+
+                // Reset tool selection
+                currentTool = null; currentToolValue = null; palette.querySelectorAll('button').forEach(btn => btn.classList.remove('selected'));
+                alert("State loaded successfully!");
+
+            } catch (error) {
+                console.error("Failed to parse state string:", error);
+                alert(`Error loading state: ${error.message}\nPlease check the format.`);
+                // Optionally, revert to previous state or clear grid on error
+            }
+        }
+
+        // --- Initial Setup & Event Listeners ---
+        setRadiusBtn.addEventListener('click', () => { /* ... (same radius setting logic, ensures max radius) ... */
+             const newRadius = parseInt(radiusInput.value, 10); if (newRadius > maxGridRadius) { alert(`Radius cannot exceed ${maxGridRadius}.`); radiusInput.value = gridRadius; return; }
+             if (!isNaN(newRadius) && newRadius >= 0) { gridRadius = newRadius; svg.innerHTML = ''; gridState = {}; viewBox = {x:0,y:0,width:0,height:0}; /* Reset viewbox too */ drawGrid(gridRadius); currentTool = null; currentToolValue = null; palette.querySelectorAll('button').forEach(btn => btn.classList.remove('selected')); outputState.value = ''; } else { alert("Please enter a valid non-negative number for the radius."); radiusInput.value = gridRadius; }
+        });
+        exportBtn.addEventListener('click', () => { outputState.value = generateStateString(); outputState.select(); });
+        importBtn.addEventListener('click', () => { const stateToLoad = inputState.value.trim(); if (stateToLoad) { parseAndLoadState(stateToLoad); } else { alert("Import box is empty."); } });
+        toggleCoordsCheckbox.addEventListener('change', () => { svg.classList.toggle('coords-hidden', !toggleCoordsCheckbox.checked); });
+        gridContainer.addEventListener('wheel', handleWheelZoom);
+        zoomInBtn.addEventListener('click', () => handleButtonZoom(true)); zoomOutBtn.addEventListener('click', () => handleButtonZoom(false));
+        gridContainer.addEventListener('mousedown', handleMouseDown);
+
+        // --- Initial Run ---
+        initializeColorPicker();
+        radiusInput.max = maxGridRadius;
+        svg.classList.add('coords-hidden');
+        toggleCoordsCheckbox.checked = false;
+        drawGrid(gridRadius); // Initial draw calculates default viewbox
+
+    </script>
+
+</body>
+</html>
